@@ -1,3 +1,4 @@
+# app/controllers/os_controller.py
 from db import get_session
 from models.models import Cliente, Veiculo, OrdemServico
 from sqlmodel import select
@@ -16,6 +17,33 @@ class OSController:
     def listar_clientes(self):
         with get_session() as s:
             return s.exec(select(Cliente)).all()
+
+    def delete_cliente(self, cliente_id: int):
+        """
+        Exclui um cliente somente se ele não possuir veículos ou ordens de serviço vinculados.
+        Retorna:
+            True  -> se excluiu
+            False -> se não encontrou ou não pode excluir
+        """
+        with get_session() as s:
+            cliente = s.get(Cliente, cliente_id)
+            if not cliente:
+                return False
+
+            # Verificar se há veículos vinculados
+            veiculos = s.exec(select(Veiculo).where(Veiculo.cliente_id == cliente_id)).all()
+            if veiculos:
+                raise ValueError("Não é possível excluir: o cliente possui veículos cadastrados.")
+
+            # Verificar se há OS vinculadas
+            ordens = s.exec(select(OrdemServico).where(OrdemServico.cliente_id == cliente_id)).all()
+            if ordens:
+                raise ValueError("Não é possível excluir: o cliente possui Ordens de Serviço vinculadas.")
+
+            s.delete(cliente)
+            s.commit()
+            return True
+
 
     def criar_veiculo(self, cliente_id, placa, marca=None, modelo=None, ano=None):
         with get_session() as s:
@@ -38,3 +66,16 @@ class OSController:
     def listar_os(self):
         with get_session() as s:
             return s.exec(select(OrdemServico)).all()
+
+    def get_os_by_id(self, os_id):
+        with get_session() as s:
+            return s.get(OrdemServico, os_id)
+
+    def delete_os(self, os_id):
+        with get_session() as s:
+            osr = s.get(OrdemServico, os_id)
+            if not osr:
+                return False
+            s.delete(osr)
+            s.commit()
+            return True
