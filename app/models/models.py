@@ -2,6 +2,24 @@
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 import datetime
+from typing import Optional
+from sqlmodel import SQLModel, Field
+
+class OrdemServicoHistorico(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ordem_id: int = Field(foreign_key="ordemservico.id")
+
+    data: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
+    usuario: Optional[str] = None           # username de quem alterou
+    acao: str = "ATUALIZACAO"               # CRIACAO / ATUALIZACAO / EXCLUSAO (se quiser usar depois)
+
+    # snapshot do estado da OS nesse momento
+    status: Optional[str] = None
+    prioridade: Optional[str] = None
+    mecanico: Optional[str] = None
+    valor: Optional[float] = None
+    descricao: Optional[str] = None
+
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
@@ -39,3 +57,4 @@ class OrdemServico(SQLModel, table=True):
     cliente_id: int = Field(foreign_key="cliente.id")
     veiculo_id: int = Field(foreign_key="veiculo.id")
     mecanico: Optional[str] = None
+    valor: float = Field(default=0.0)

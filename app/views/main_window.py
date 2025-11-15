@@ -2,13 +2,79 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QListWidget, QMessageBox, QHBoxLayout,
-    QFormLayout, QToolBar, QStackedWidget, QListWidgetItem
+    QFormLayout, QToolBar, QStackedWidget, QListWidgetItem,
+    QTableView, QHeaderView, QDialog, QAbstractItemView,
+    QFileDialog
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QAction
-
+import datetime
+import csv
 from controllers.os_controller import OSController
 from controllers.auth_controller import AuthController
+from views.edit_os_dialog import EditOSDialog
+from views.os_history_dialog import OSHistoryDialog
+
+class OSTableModel(QAbstractTableModel):
+    COLUMNS = [
+        ("ID", "id"),
+        ("Código", "codigo"),
+        ("Descrição", "descricao"),
+        ("Status", "status"),
+        ("Prioridade", "prioridade"),
+        ("Cliente", "cliente_nome"),
+        ("Veículo", "veiculo_placa"),
+        ("Mecânico", "mecanico"),
+        ("Aberta Em", "aberta_em"),
+    ]
+
+    def __init__(self, rows=None, parent=None):
+        super().__init__(parent)
+        self._rows = rows or []
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self._rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self.COLUMNS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if role != Qt.DisplayRole:
+            return None
+        if orientation == Qt.Horizontal:
+            return self.COLUMNS[section][0]
+        return section + 1
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        row = index.row()
+        col = index.column()
+        attr = self.COLUMNS[col][1]
+        item = self._rows[row]
+
+        if role == Qt.DisplayRole:
+            # support both object attributes and dicts
+            val = getattr(item, attr, None) if hasattr(item, attr) else item.get(attr, None)
+            if isinstance(val, datetime.datetime):
+                return val.strftime("%Y-%m-%d %H:%M")
+            return "" if val is None else str(val)
+
+        if role == Qt.UserRole:
+            # Return the underlying object for convenience
+            return item
+
+        return None
+
+    def get_item(self, row_idx):
+        if 0 <= row_idx < len(self._rows):
+            return self._rows[row_idx]
+        return None
+
+    def set_rows(self, rows):
+        self.beginResetModel()
+        self._rows = rows or []
+        self.endResetModel()
 
 
 class MainWindow(QMainWindow):
@@ -17,7 +83,6 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AutoManager")
         self.resize(900, 600)
 
-        # usuário autenticado (instância retornada pelo AuthController)
         self.user = user or None
         self.controller = OSController()
         self.auth_controller = AuthController()
@@ -33,10 +98,10 @@ class MainWindow(QMainWindow):
         self.page_users = self._build_users_page()
 
         # Adicionar páginas ao stack
-        self.stack.addWidget(self.page_os)       # index 0
-        self.stack.addWidget(self.page_clients)  # index 1
-        self.stack.addWidget(self.page_vehicles) # index 2
-        self.stack.addWidget(self.page_users)    # index 3
+        self.stack.addWidget(self.page_os)
+        self.stack.addWidget(self.page_clients)
+        self.stack.addWidget(self.page_vehicles)
+        self.stack.addWidget(self.page_users)
 
         # Barra de menu / toolbar
         self._create_menu()
@@ -48,7 +113,7 @@ class MainWindow(QMainWindow):
     # Menu / Toolbar
     # ---------------------------
     def _create_menu(self):
-        menubar = self.menuBar()  # QMenuBar
+        menubar = self.menuBar()
         menu_opcoes = menubar.addMenu("Opções")
 
         self.act_os = QAction("OS", self)
@@ -63,14 +128,11 @@ class MainWindow(QMainWindow):
         self.act_vehicles.triggered.connect(self.show_vehicles_page)
         menu_opcoes.addAction(self.act_vehicles)
 
-        # Ação Usuários: será habilitada apenas para Administrador
         self.act_users = QAction("Usuários", self)
         self.act_users.triggered.connect(self.show_users_page)
-        is_admin = self._current_user_is_admin()
-        self.act_users.setEnabled(is_admin)
+        self.act_users.setEnabled(self._current_user_is_admin())
         menu_opcoes.addAction(self.act_users)
 
-        # Toolbar (atalhos rápidos)
         toolbar = QToolBar("Principal")
         self.addToolBar(toolbar)
         toolbar.addAction(self.act_os)
@@ -79,7 +141,6 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.act_users)
 
     def _current_user_is_admin(self) -> bool:
-        """Retorna True se o usuário autenticado for Administrador."""
         if not self.user:
             return False
         role = getattr(self.user, "role", None) or getattr(self.user, "Role", None) or ""
@@ -106,7 +167,6 @@ class MainWindow(QMainWindow):
         self.load_vehicles_list()
 
     def show_users_page(self):
-        # checagem extra de segurança: bloqueia se não for admin
         if not self._current_user_is_admin():
             QMessageBox.warning(self, "Acesso negado", "Acesso restrito a Administradores.")
             return
@@ -114,7 +174,7 @@ class MainWindow(QMainWindow):
         self.load_users_list()
 
     # ---------------------------
-    # OS Page (lista, criar, excluir)
+    # OS Page (QTableView)
     # ---------------------------
     def _build_os_page(self):
         w = QWidget()
@@ -127,36 +187,94 @@ class MainWindow(QMainWindow):
         self.os_cliente_combo = QComboBox()
         self.os_veiculo_combo = QComboBox()
         self.os_descricao = QLineEdit()
+        self.os_valor = QLineEdit()
+        self.os_valor.setPlaceholderText("0.00")
         form.addRow("Cliente:", self.os_cliente_combo)
         form.addRow("Veículo:", self.os_veiculo_combo)
         form.addRow("Descrição:", self.os_descricao)
+        form.addRow("Valor (R$):", self.os_valor)
         layout.addLayout(form)
 
+        # buttons: criar, editar, refresh
         btn_layout = QHBoxLayout()
         btn_create = QPushButton("Criar OS")
         btn_create.clicked.connect(self.on_criar_os)
+
+        self.btn_edit_os = QPushButton("Editar OS")
+        self.btn_edit_os.clicked.connect(self.on_edit_os)
+        self.btn_edit_os.setEnabled(False)
+
+        self.btn_history_os = QPushButton("Histórico")
+        self.btn_history_os.clicked.connect(self.on_ver_historico_os)
+        self.btn_history_os.setEnabled(False)
+
         btn_refresh = QPushButton("Refresh")
         btn_refresh.clicked.connect(self.load_os_list)
+
+        btn_export = QPushButton("Exportar CSV")
+        btn_export.clicked.connect(self.export_os_csv)
+        btn_layout.addWidget(btn_export)
+
         btn_layout.addWidget(btn_create)
+        btn_layout.addWidget(self.btn_edit_os)
+        btn_layout.addWidget(self.btn_history_os)
         btn_layout.addWidget(btn_refresh)
         layout.addLayout(btn_layout)
 
+        # Table view
         layout.addWidget(QLabel("Lista de Ordens:"))
-        self.os_list = QListWidget()
-        layout.addWidget(self.os_list)
+        self.os_table = QTableView()
+        self.os_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.os_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.os_table.horizontalHeader().setStretchLastSection(True)
+        self.os_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.os_model = OSTableModel(rows=[])
+        self.os_table.setModel(self.os_model)
+        # escondendo ID (coluna 0) para o usuário
+        self.os_table.setColumnHidden(0, True)
+        # seleção
+        self.os_table.selectionModel().selectionChanged.connect(self._on_os_table_selection_changed)
+        # double click -> edit
+        self.os_table.doubleClicked.connect(lambda _: self.on_edit_os())
 
+        layout.addWidget(self.os_table)
+
+        # delete button
         del_layout = QHBoxLayout()
         self.btn_delete_os = QPushButton("Excluir Ordem Selecionada")
-        self.btn_delete_os.clicked.connect(self.on_excluir_os)
+        self.btn_delete_os.clicked.connect(self.on_excluir_os_table)
         self.btn_delete_os.setEnabled(False)
         del_layout.addWidget(self.btn_delete_os)
         layout.addLayout(del_layout)
 
-        self.os_list.currentItemChanged.connect(self.on_os_selected)
         return w
 
+    def _on_os_table_selection_changed(self, selected, deselected):
+        has_sel = False
+        try:
+            has_sel = self.os_table.selectionModel().hasSelection()
+        except Exception:
+            has_sel = False
+        self.btn_delete_os.setEnabled(has_sel)
+        self.btn_edit_os.setEnabled(has_sel)
+        self.btn_history_os.setEnabled(has_sel)
+
+    def on_ver_historico_os(self):
+        sel = self.os_table.selectionModel().selectedRows()
+        if not sel:
+            QMessageBox.warning(self, "Histórico", "Selecione uma ordem para ver o histórico.")
+            return
+        row_idx = sel[0].row()
+        item = self.os_model.get_item(row_idx)
+        os_id = getattr(item, "id", None) if hasattr(item, "id") else item.get("id")
+        if not os_id:
+            QMessageBox.warning(self, "Histórico", "Não foi possível identificar a OS selecionada.")
+            return
+
+        dlg = OSHistoryDialog(os_id, parent=self)
+        dlg.exec()
+
     def load_clients_in_os_page(self):
-        # desconecta sinal anterior para evitar múltiplas conexões
         try:
             self.os_cliente_combo.currentIndexChanged.disconnect()
         except Exception:
@@ -167,9 +285,7 @@ class MainWindow(QMainWindow):
         for c in clientes:
             self.os_cliente_combo.addItem(f"{c.nome}", userData=c.id)
 
-        # pre-load vehicles for selected client
         self._os_update_vehicles_from_client(0)
-        # reconectar sinal
         self.os_cliente_combo.currentIndexChanged.connect(self._os_update_vehicles_from_client)
 
     def _os_update_vehicles_from_client(self, idx):
@@ -183,38 +299,127 @@ class MainWindow(QMainWindow):
             self.os_veiculo_combo.addItem(display, userData=v.id)
 
     def load_os_list(self):
-        self.os_list.clear()
-        ordens = self.controller.listar_os()
+        """
+        Carrega ordens via controller, enriquece com cliente_nome e veiculo_placa
+        e atualiza o model da tabela.
+        """
+        ordens = self.controller.listar_os()  # lista de objetos OrdemServico
+        enriched = []
+
+        # carregar clientes para lookup rápido
+        try:
+            clientes = self.controller.listar_clientes()
+            clientes_map = {c.id: c for c in clientes}
+        except Exception:
+            clientes_map = {}
+
+        # para cada ordem, buscar placa/nome para exibição
         for o in ordens:
-            item = QListWidgetItem(f"{o.codigo} — {o.descricao} — {o.status}")
-            item.setData(Qt.UserRole, o.id)
-            self.os_list.addItem(item)
+            cliente_nome = ""
+            veiculo_placa = ""
+            try:
+                cliente = clientes_map.get(getattr(o, "cliente_id", None))
+                if cliente:
+                    cliente_nome = cliente.nome
+            except Exception:
+                cliente_nome = ""
+
+            try:
+                # listar veiculos do cliente e procurar por id
+                veiculos = self.controller.listar_veiculos_por_cliente(getattr(o, "cliente_id", None))
+                veiculo = next((v for v in veiculos if v.id == getattr(o, "veiculo_id", None)), None)
+                if veiculo:
+                    veiculo_placa = veiculo.placa
+            except Exception:
+                veiculo_placa = ""
+
+            # anexa atributos (SQLModel aceita setattr)
+            try:
+                setattr(o, "cliente_nome", cliente_nome)
+                setattr(o, "veiculo_placa", veiculo_placa)
+            except Exception:
+                # se não der, transforma em dict
+                o = {
+                    "id": getattr(o, "id", None),
+                    "codigo": getattr(o, "codigo", ""),
+                    "descricao": getattr(o, "descricao", ""),
+                    "status": getattr(o, "status", ""),
+                    "prioridade": getattr(o, "prioridade", ""),
+                    "cliente_nome": cliente_nome,
+                    "veiculo_placa": veiculo_placa,
+                    "mecanico": getattr(o, "mecanico", ""),
+                    "aberta_em": getattr(o, "aberta_em", None),
+                }
+            enriched.append(o)
+
+        self.os_model.set_rows(enriched)
+        # esconder ID caso tenha mudado o model
+        try:
+            self.os_table.setColumnHidden(0, True)
+        except Exception:
+            pass
+
+        # reset buttons
         self.btn_delete_os.setEnabled(False)
+        self.btn_edit_os.setEnabled(False)
 
     def on_criar_os(self):
         client_id = self.os_cliente_combo.currentData()
         veiculo_id = self.os_veiculo_combo.currentData()
         descricao = self.os_descricao.text().strip()
+        val_text = self.os_valor.text().strip().replace(",", ".")
+        try:
+            valor = float(val_text) if val_text else 0.0
+        except Exception:
+            QMessageBox.warning(self, "Erro", "Valor inválido. Use número como 150.00")
+            return
+
         if not client_id or not veiculo_id or not descricao:
             QMessageBox.warning(self, "Erro", "Preencha cliente, veículo e descrição.")
             return
         try:
-            osr = self.controller.criar_os(client_id, veiculo_id, descricao)
+            usuario = getattr(self.user, "username", None)
+            osr = self.controller.criar_os(
+                client_id,
+                veiculo_id,
+                descricao,
+                valor=valor,
+                usuario=usuario
+            )
             QMessageBox.information(self, "Ok", f"Ordem criada: {osr.codigo}")
             self.os_descricao.clear()
+            self.os_valor.clear()
             self.load_os_list()
         except Exception as ex:
             QMessageBox.critical(self, "Erro", f"Erro ao criar OS: {ex}")
 
-    def on_os_selected(self, current, previous):
-        self.btn_delete_os.setEnabled(current is not None)
-
-    def on_excluir_os(self):
-        item = self.os_list.currentItem()
-        if not item:
+    def on_edit_os(self):
+        sel = self.os_table.selectionModel().selectedRows()
+        if not sel:
+            QMessageBox.warning(self, "Erro", "Selecione uma ordem para editar.")
             return
-        os_id = item.data(Qt.UserRole)
-        confirm = QMessageBox.question(self, "Confirmar", "Excluir a ordem selecionada?", QMessageBox.Yes | QMessageBox.No)
+        row_idx = sel[0].row()
+        item = self.os_model.get_item(row_idx)
+        os_id = getattr(item, "id", None) if hasattr(item, "id") else item.get("id")
+        os_obj = self.controller.get_os_by_id(os_id)
+        if not os_obj:
+            QMessageBox.warning(self, "Erro", "Ordem não encontrada.")
+            self.load_os_list()
+            return
+        dlg = EditOSDialog(os_obj, current_user=self.user, parent=self)
+        res = dlg.exec()
+        if res == QDialog.Accepted:
+            self.load_os_list()
+
+    def on_excluir_os_table(self):
+        sel = self.os_table.selectionModel().selectedRows()
+        if not sel:
+            return
+        row_idx = sel[0].row()
+        item = self.os_model.get_item(row_idx)
+        os_id = getattr(item, "id", None) if hasattr(item, "id") else item.get("id")
+        codigo = getattr(item, "codigo", "") if hasattr(item, "codigo") else item.get("codigo", "")
+        confirm = QMessageBox.question(self, "Confirmar", f"Excluir a ordem {codigo}?", QMessageBox.Yes | QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
         ok = self.controller.delete_os(os_id)
@@ -223,6 +428,57 @@ class MainWindow(QMainWindow):
             self.load_os_list()
         else:
             QMessageBox.warning(self, "Erro", "Não foi possível excluir a ordem.")
+
+    def export_os_csv(self):
+        ordens = self.controller.listar_os()
+        if not ordens:
+            QMessageBox.information(self, "Exportar CSV", "Nenhuma ordem para exportar.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Salvar CSV", "ordens_servico.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+
+        try:
+            # carregar lookup de clientes/veiculos para human readable
+            clientes = {c.id: c.nome for c in self.controller.listar_clientes()}
+            rows = []
+            for o in ordens:
+                cliente_nome = clientes.get(getattr(o, "cliente_id", None), "")
+                # tentar placa do veículo
+                veiculo_placa = ""
+                try:
+                    veiculos = self.controller.listar_veiculos_por_cliente(getattr(o, "cliente_id", None))
+                    v = next((v for v in veiculos if v.id == getattr(o, "veiculo_id", None)), None)
+                    if v:
+                        veiculo_placa = v.placa
+                except Exception:
+                    veiculo_placa = ""
+
+                rows.append({
+                    "id": getattr(o, "id", None),
+                    "codigo": getattr(o, "codigo", ""),
+                    "descricao": getattr(o, "descricao", ""),
+                    "status": getattr(o, "status", ""),
+                    "prioridade": getattr(o, "prioridade", ""),
+                    "cliente": cliente_nome,
+                    "veiculo": veiculo_placa,
+                    "mecanico": getattr(o, "mecanico", "") or "",
+                    "valor": f"{(getattr(o, 'valor', 0.0) or 0.0):.2f}",
+                    "aberta_em": getattr(o, "aberta_em", ""),
+                })
+
+            # escrever CSV
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=["id","codigo","descricao","status","prioridade","cliente","veiculo","mecanico","valor","aberta_em"])
+                writer.writeheader()
+                for r in rows:
+                    writer.writerow(r)
+
+            QMessageBox.information(self, "Exportar CSV", f"Exportado com sucesso: {path}")
+        except Exception as ex:
+            QMessageBox.critical(self, "Erro", f"Erro ao exportar CSV: {ex}")
+
 
     # ---------------------------
     # Clientes Page
@@ -279,7 +535,6 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Ok", f"Cliente criado: {c.nome}")
         self.cl_nome.clear(); self.cl_doc.clear(); self.cl_tel.clear()
         self.load_clients_list()
-        # also refresh OS page client combo
         self.load_clients_in_os_page()
 
     def load_clients_list(self):
@@ -291,7 +546,6 @@ class MainWindow(QMainWindow):
             self.clients_list.addItem(item)
 
     def on_cliente_selected(self, current, previous):
-        """Habilita o botão excluir quando há seleção."""
         self.btn_delete_client.setEnabled(current is not None)
 
     def on_delete_client(self):
@@ -317,8 +571,8 @@ class MainWindow(QMainWindow):
             if ok:
                 QMessageBox.information(self, "Ok", "Cliente excluído com sucesso.")
                 self.load_clients_list()
-                self.load_clients_in_os_page()        # atualiza combos
-                self.load_clients_in_vehicle_page()   # atualiza combos
+                self.load_clients_in_os_page()
+                self.load_clients_in_vehicle_page()
             else:
                 QMessageBox.warning(self, "Erro", "Cliente não encontrado.")
         except ValueError as ex:
@@ -424,7 +678,6 @@ class MainWindow(QMainWindow):
         self.users_list = QListWidget()
         layout.addWidget(self.users_list)
 
-        # Se o usuário atual não for admin, desabilitar o formulário de criação e exclusão
         if not self._current_user_is_admin():
             self.u_username.setEnabled(False)
             self.u_name.setEnabled(False)
@@ -433,13 +686,11 @@ class MainWindow(QMainWindow):
             self.btn_add_user.setEnabled(False)
             self.btn_delete_user.setEnabled(False)
 
-        # conectar seleção de usuário para habilitar/excluir botão
         self.users_list.currentItemChanged.connect(self.on_user_selected)
 
         return w
 
     def on_add_user(self):
-        # segurança adicional: apenas admin pode cadastrar usuários
         if not self._current_user_is_admin():
             QMessageBox.warning(self, "Acesso negado", "Apenas Administradores podem cadastrar usuários.")
             return
@@ -472,24 +723,20 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Aviso", f"Erro ao listar usuários: {ex}")
 
     def on_user_selected(self, current, previous):
-        # habilita botão excluir apenas se item selecionado e se for admin
         if current is None:
             self.btn_delete_user.setEnabled(False)
             return
         if not self._current_user_is_admin():
             self.btn_delete_user.setEnabled(False)
             return
-        # evita o admin deletar a si mesmo (opcional)
         selected_id = current.data(Qt.UserRole)
         current_admin_id = getattr(self.user, "id", None)
         if current_admin_id is not None and selected_id == current_admin_id:
-            # desabilitar exclusão do próprio admin
             self.btn_delete_user.setEnabled(False)
             return
         self.btn_delete_user.setEnabled(True)
 
     def on_delete_user(self):
-        # confirmação e chamada ao controller
         item = self.users_list.currentItem()
         if not item:
             return
@@ -498,7 +745,6 @@ class MainWindow(QMainWindow):
         confirm = QMessageBox.question(self, "Confirmar", f"Excluir o usuário '{username_display}'?", QMessageBox.Yes | QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
-        # chamada ao controller
         try:
             ok = self.auth_controller.delete_user(user_id)
             if ok:
