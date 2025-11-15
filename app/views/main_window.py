@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("AutoManager")
         self.resize(900, 600)
-
+        self._apply_style()
         self.user = user or None
         self.controller = OSController()
         self.auth_controller = AuthController()
@@ -108,6 +108,167 @@ class MainWindow(QMainWindow):
 
         # Inicial: mostrar OS
         self.show_os_page()
+
+    def _apply_style(self):
+        """
+        Aplica um tema escuro agradável para a janela principal.
+        """
+        self.setStyleSheet("""
+        QMainWindow {
+            background-color: #0f172a;  /* fundo geral */
+            color: #e5e7eb;
+        }
+
+        QWidget {
+            background-color: #020617;
+            color: #e5e7eb;
+        }
+
+        QToolBar {
+            background-color: #020617;
+            spacing: 8px;
+            padding: 4px 8px;
+            border: none;
+        }
+
+        QToolBar QToolButton {
+            background-color: transparent;
+            color: #e5e7eb;
+            padding: 4px 8px;
+            border-radius: 6px;
+        }
+
+        QToolBar QToolButton:hover {
+            background-color: #1f2937;
+        }
+
+        QMenuBar {
+            background-color: #020617;
+            color: #e5e7eb;
+        }
+
+        QMenuBar::item:selected {
+            background-color: #1f2937;
+        }
+
+        QMenu {
+            background-color: #020617;
+            color: #e5e7eb;
+            border: 1px solid #1f2937;
+        }
+
+        QMenu::item:selected {
+            background-color: #1f2937;
+        }
+
+        QPushButton {
+            background-color: #2563eb;
+            color: #f9fafb;
+            border-radius: 6px;
+            padding: 6px 12px;
+            border: none;
+            font-weight: 500;
+        }
+
+        QPushButton:hover {
+            background-color: #1d4ed8;
+        }
+
+        QPushButton:pressed {
+            background-color: #1e40af;
+        }
+
+        QPushButton:disabled {
+            background-color: #374151;
+            color: #9ca3af;
+        }
+
+        QLineEdit, QComboBox {
+            background-color: #020617;
+            border: 1px solid #374151;
+            border-radius: 4px;
+            padding: 4px 8px;
+            color: #e5e7eb;
+            selection-background-color: #2563eb;
+        }
+
+        QLineEdit::placeholder {
+            color: #6b7280;
+        }
+
+        QComboBox::drop-down {
+            border: none;
+        }
+
+        QComboBox QAbstractItemView {
+            background-color: #020617;
+            border: 1px solid #374151;
+            color: #e5e7eb;
+            selection-background-color: #2563eb;
+        }
+
+        QLabel#pageTitle {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #f9fafb;
+        }
+
+        QLabel {
+            color: #e5e7eb;
+        }
+
+        QListWidget {
+            background-color: #020617;
+            border: 1px solid #374151;
+            border-radius: 4px;
+        }
+
+        QListWidget::item:selected {
+            background-color: #1f2937;
+            color: #f9fafb;
+        }
+
+        QTableView {
+            background-color: #020617;
+            gridline-color: #374151;
+            border: 1px solid #374151;
+            border-radius: 4px;
+            selection-background-color: #2563eb;
+            selection-color: #f9fafb;
+        }
+
+        QHeaderView::section {
+            background-color: #020617;
+            color: #e5e7eb;
+            padding: 4px 6px;
+            border: none;
+            border-bottom: 1px solid #374151;
+            font-weight: 600;
+        }
+
+        QScrollBar:vertical, QScrollBar:horizontal {
+            background: #020617;
+            border: none;
+            width: 10px;
+            margin: 0px;
+        }
+
+        QScrollBar::handle {
+            background: #4b5563;
+            border-radius: 5px;
+        }
+
+        QScrollBar::handle:hover {
+            background: #6b7280;
+        }
+
+        QScrollBar::add-line, QScrollBar::sub-line {
+            background: none;
+            border: none;
+        }
+        """)
+
 
     # ---------------------------
     # Menu / Toolbar
@@ -181,7 +342,9 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         w.setLayout(layout)
 
-        layout.addWidget(QLabel("<h2>Ordens de Serviço</h2>"))
+        title = QLabel("Ordens de Serviço")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
 
         form = QFormLayout()
         self.os_cliente_combo = QComboBox()
@@ -199,6 +362,11 @@ class MainWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         btn_create = QPushButton("Criar OS")
         btn_create.clicked.connect(self.on_criar_os)
+
+        role = getattr(self.user, "role", "") if hasattr(self, "user") else ""
+        if str(role).strip().lower() == "mecanico":
+            btn_create.setEnabled(False)
+
 
         self.btn_edit_os = QPushButton("Editar OS")
         self.btn_edit_os.clicked.connect(self.on_edit_os)
@@ -377,21 +545,28 @@ class MainWindow(QMainWindow):
         if not client_id or not veiculo_id or not descricao:
             QMessageBox.warning(self, "Erro", "Preencha cliente, veículo e descrição.")
             return
+
+        username = getattr(self.user, "username", None)
+        role = getattr(self.user, "role", None)
+
         try:
-            usuario = getattr(self.user, "username", None)
             osr = self.controller.criar_os(
                 client_id,
                 veiculo_id,
                 descricao,
                 valor=valor,
-                usuario=usuario
+                usuario=username,
+                role=role,
             )
             QMessageBox.information(self, "Ok", f"Ordem criada: {osr.codigo}")
             self.os_descricao.clear()
             self.os_valor.clear()
             self.load_os_list()
+        except PermissionError as ex:
+            QMessageBox.warning(self, "Acesso negado", str(ex))
         except Exception as ex:
             QMessageBox.critical(self, "Erro", f"Erro ao criar OS: {ex}")
+
 
     def on_edit_os(self):
         sel = self.os_table.selectionModel().selectedRows()
@@ -419,15 +594,25 @@ class MainWindow(QMainWindow):
         item = self.os_model.get_item(row_idx)
         os_id = getattr(item, "id", None) if hasattr(item, "id") else item.get("id")
         codigo = getattr(item, "codigo", "") if hasattr(item, "codigo") else item.get("codigo", "")
+
         confirm = QMessageBox.question(self, "Confirmar", f"Excluir a ordem {codigo}?", QMessageBox.Yes | QMessageBox.No)
         if confirm != QMessageBox.Yes:
             return
-        ok = self.controller.delete_os(os_id)
-        if ok:
-            QMessageBox.information(self, "Ok", "Ordem excluída.")
-            self.load_os_list()
-        else:
-            QMessageBox.warning(self, "Erro", "Não foi possível excluir a ordem.")
+
+        role = getattr(self.user, "role", None)
+        username = getattr(self.user, "username", None)
+
+        try:
+            ok = self.controller.delete_os(os_id, role=role, usuario=username)
+            if ok:
+                QMessageBox.information(self, "Ok", "Ordem excluída.")
+                self.load_os_list()
+            else:
+                QMessageBox.warning(self, "Erro", "Não foi possível excluir a ordem.")
+        except PermissionError as ex:
+            QMessageBox.warning(self, "Acesso negado", str(ex))
+        except Exception as ex:
+            QMessageBox.critical(self, "Erro", f"Erro ao excluir ordem: {ex}")
 
     def export_os_csv(self):
         ordens = self.controller.listar_os()
@@ -488,7 +673,9 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         w.setLayout(layout)
 
-        layout.addWidget(QLabel("<h2>Clientes</h2>"))
+        title = QLabel("Clientes")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
 
         form = QFormLayout()
         self.cl_nome = QLineEdit()
@@ -584,8 +771,14 @@ class MainWindow(QMainWindow):
     # Vehicles Page
     # ---------------------------
     def _build_vehicles_page(self):
-        w = QWidget(); layout = QVBoxLayout(); w.setLayout(layout)
-        layout.addWidget(QLabel("<h2>Veículos</h2>"))
+        w = QWidget()
+        layout = QVBoxLayout()
+        w.setLayout(layout)
+
+        title = QLabel("Veículos")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
+
         form = QFormLayout()
         self.v_cliente_combo = QComboBox()
         self.v_placa = QLineEdit()
@@ -598,18 +791,86 @@ class MainWindow(QMainWindow):
         layout.addLayout(form)
 
         btn_layout = QHBoxLayout()
+
         btn_add_vehicle = QPushButton("Adicionar Veículo")
         btn_add_vehicle.clicked.connect(self.on_add_vehicle)
+
+        self.btn_delete_vehicle = QPushButton("Excluir Veículo Selecionado")
+        self.btn_delete_vehicle.clicked.connect(self.on_delete_vehicle)
+        self.btn_delete_vehicle.setEnabled(False)
+
         btn_refresh_vehicles = QPushButton("Refresh")
         btn_refresh_vehicles.clicked.connect(self.load_vehicles_list)
-        btn_layout.addWidget(btn_add_vehicle); btn_layout.addWidget(btn_refresh_vehicles)
+
+        btn_layout.addWidget(btn_add_vehicle)
+        btn_layout.addWidget(self.btn_delete_vehicle)
+        btn_layout.addWidget(btn_refresh_vehicles)
         layout.addLayout(btn_layout)
 
         layout.addWidget(QLabel("Lista de Veículos"))
         self.vehicles_list = QListWidget()
         layout.addWidget(self.vehicles_list)
 
+        # habilitar/desabilitar botão conforme seleção e papel
+        self.vehicles_list.currentItemChanged.connect(self.on_vehicle_selected)
+
         return w
+
+    def on_vehicle_selected(self, current, previous):
+        """
+        Habilita o botão de exclusão apenas se houver veículo selecionado
+        E se o usuário for Administrador ou Gerente.
+        """
+        if current is None:
+            self.btn_delete_vehicle.setEnabled(False)
+            return
+
+        role = getattr(self.user, "role", "") or ""
+        r = str(role).strip().lower()
+        if r in ("administrador", "gerente"):
+            self.btn_delete_vehicle.setEnabled(True)
+        else:
+            # Mecânico (ou outro papel) não pode excluir
+            self.btn_delete_vehicle.setEnabled(False)
+
+    def on_delete_vehicle(self):
+        item = self.vehicles_list.currentItem()
+        if not item:
+            return
+
+        veiculo_id = item.data(Qt.UserRole)
+        texto = item.text()
+
+        confirm = QMessageBox.question(
+            self,
+            "Confirmar exclusão",
+            f"Deseja realmente excluir o veículo:\n{texto}?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        role = getattr(self.user, "role", None)
+        username = getattr(self.user, "username", None)
+
+        try:
+            ok = self.controller.delete_veiculo(veiculo_id, role=role, usuario=username)
+            if ok:
+                QMessageBox.information(self, "Ok", "Veículo excluído com sucesso.")
+                self.load_vehicles_list()
+                # atualizar combos de OS e de veículos (se necessário)
+                self.load_clients_in_os_page()
+            else:
+                QMessageBox.warning(self, "Erro", "Veículo não encontrado.")
+        except ValueError as ex:
+            # regra de negócio: veículo com OS vinculada
+            QMessageBox.warning(self, "Erro", str(ex))
+        except PermissionError as ex:
+            # mecânico ou outro papel sem permissão
+            QMessageBox.warning(self, "Acesso negado", str(ex))
+        except Exception as ex:
+            QMessageBox.critical(self, "Erro", f"Erro ao excluir veículo: {ex}")
+
 
     def load_clients_in_vehicle_page(self):
         self.v_cliente_combo.clear()
@@ -641,12 +902,20 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.UserRole, v.id)
                 self.vehicles_list.addItem(item)
 
+        # nenhum selecionado após recarregar
+        if hasattr(self, "btn_delete_vehicle"):
+            self.btn_delete_vehicle.setEnabled(False)
+
+
     # ---------------------------
     # Users Page (usa AuthController)
     # ---------------------------
     def _build_users_page(self):
         w = QWidget(); layout = QVBoxLayout(); w.setLayout(layout)
-        layout.addWidget(QLabel("<h2>Usuários</h2>"))
+
+        title = QLabel("Usuários")
+        title.setObjectName("pageTitle")
+        layout.addWidget(title)
 
         form = QFormLayout()
         self.u_username = QLineEdit()

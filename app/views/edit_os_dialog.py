@@ -14,8 +14,14 @@ class EditOSDialog(QDialog):
         self.current_user = current_user
         self.ctrl = OSController()
         self.auth_ctrl = AuthController()
+        # papel do usuário
+        self.user_role = ""
+        if self.current_user is not None:
+            r = getattr(self.current_user, "role", "") or ""
+            self.user_role = str(r).strip().lower()
         self._setup_ui()
         self._load_data()
+
 
 
     def _setup_ui(self):
@@ -56,6 +62,16 @@ class EditOSDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         h.addWidget(btn_save); h.addWidget(btn_cancel)
         layout.addLayout(h)
+
+        # --- restrições por papel ---
+        if self.user_role == "mecanico":
+            # Mecânico só pode alterar status e descrição
+            self.combo_prioridade.setEnabled(False)
+            self.combo_mecanico.setEnabled(False)
+            self.combo_veiculo.setEnabled(False)
+            self.input_valor.setEnabled(False)
+        # Gerente/Administrador ficam com tudo liberado
+
 
     def _load_data(self):
         self.input_descricao.setText(getattr(self.os, "descricao", "") or "")
@@ -111,18 +127,20 @@ class EditOSDialog(QDialog):
             self.input_valor.setText("0.00")
 
     def on_save(self):
+        # Descrição obrigatória
         descricao = self.input_descricao.text().strip()
         if not descricao:
             QMessageBox.warning(self, "Erro", "Descrição não pode ficar vazia.")
             return
-        usuario = getattr(self.current_user, "username", None)
+
+        # Campos da OS
         status = self.combo_status.currentText()
         prioridade = self.combo_prioridade.currentText()
         mecanico_username = self.combo_mecanico.currentData()
         mecanico = mecanico_username if mecanico_username is not None else None
         veiculo_id = self.combo_veiculo.currentData()
 
-        # validar valor
+        # Validar valor (numérico)
         val_text = self.input_valor.text().strip().replace(",", ".")
         try:
             valor = float(val_text) if val_text else 0.0
@@ -130,6 +148,14 @@ class EditOSDialog(QDialog):
             QMessageBox.warning(self, "Erro", "Valor inválido. Use números, ex: 150.00")
             return
 
+        # Usuário atual (para regras de permissão e histórico)
+        usuario = None
+        role = None
+        if self.current_user is not None:
+            usuario = getattr(self.current_user, "username", None)
+            role = getattr(self.current_user, "role", None)
+
+        # Chamada ao controller
         try:
             updated = self.ctrl.update_os(
                 os_id=self.os.id,
@@ -139,12 +165,18 @@ class EditOSDialog(QDialog):
                 mecanico=mecanico,
                 veiculo_id=veiculo_id,
                 valor=valor,
-                usuario=usuario
+                usuario=usuario,
+                role=role,
             )
             if updated is None:
                 QMessageBox.warning(self, "Erro", "Ordem não encontrada.")
-                self.reject(); return
+                self.reject()
+                return
+
             QMessageBox.information(self, "Ok", "Ordem atualizada com sucesso.")
             self.accept()
+
+        except PermissionError as ex:
+            QMessageBox.warning(self, "Acesso negado", str(ex))
         except Exception as ex:
             QMessageBox.critical(self, "Erro", f"Erro ao atualizar OS: {ex}")
