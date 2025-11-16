@@ -2,18 +2,15 @@
 from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
 import datetime
-from typing import Optional
-from sqlmodel import SQLModel, Field
 
 class OrdemServicoHistorico(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     ordem_id: int = Field(foreign_key="ordemservico.id")
 
     data: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-    usuario: Optional[str] = None           # username de quem alterou
-    acao: str = "ATUALIZACAO"               # CRIACAO / ATUALIZACAO / EXCLUSAO (se quiser usar depois)
+    usuario: Optional[str] = None
+    acao: str = "ATUALIZACAO"  # CRIACAO / ATUALIZACAO / EXCLUSAO
 
-    # snapshot do estado da OS nesse momento
     status: Optional[str] = None
     prioridade: Optional[str] = None
     mecanico: Optional[str] = None
@@ -27,9 +24,9 @@ class User(SQLModel, table=True):
     username: str = Field(index=True, nullable=False, unique=True)
     nome: Optional[str] = None
     password_hash: str = Field(nullable=False)
-    role: str = Field(default="Mecanico")  # "Administrador", "Gerente", "Mecanico"
+    role: str = Field(default="Mecanico")
 
-# --- existing models below (Cliente, Veiculo, OrdemServico) ---
+
 class Cliente(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     nome: str
@@ -37,6 +34,7 @@ class Cliente(SQLModel, table=True):
     telefone: Optional[str] = None
     email: Optional[str] = None
     veiculos: List["Veiculo"] = Relationship(back_populates="cliente")
+
 
 class Veiculo(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -46,6 +44,7 @@ class Veiculo(SQLModel, table=True):
     ano: Optional[int] = None
     cliente_id: Optional[int] = Field(default=None, foreign_key="cliente.id")
     cliente: Optional[Cliente] = Relationship(back_populates="veiculos")
+
 
 class OrdemServico(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)

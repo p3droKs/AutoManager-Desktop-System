@@ -44,6 +44,7 @@ class OSController:
         )
         s.add(h)
 
+
     def update_os(self, os_id: int, descricao: str = None, status: str = None,
               prioridade: str = None, mecanico: str = None,
               veiculo_id: int = None, valor: float = None,
@@ -183,19 +184,25 @@ class OSController:
                 mecanico=mecanico,
                 valor=float(valor or 0.0)
             )
-            s.add(osr)
-            s.commit()
-            s.refresh(osr)
 
-            # histórico de criação (se você já implementou)
+            # adiciona a OS e garante que o ID seja gerado
+            s.add(osr)
+            s.flush()          # <-- aqui o osr.id já é preenchido
+
+            # registra o histórico ainda dentro da mesma transação
             try:
                 self._registrar_historico(s, osr, acao="CRIACAO", usuario=usuario)
-                s.commit()
             except Exception:
+                # se der erro no histórico, você decide: ou ignora ou relança
                 pass
 
-            return osr
+            # um commit só para OS + histórico
+            s.commit()
 
+            # opcional: atualizar o objeto em memória
+            s.refresh(osr)
+
+            return osr
 
     def listar_os(self):
         with get_session() as s:

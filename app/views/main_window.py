@@ -443,9 +443,11 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def load_clients_in_os_page(self):
+        # tenta desconectar APENAS o slot que usamos
         try:
-            self.os_cliente_combo.currentIndexChanged.disconnect()
-        except Exception:
+            self.os_cliente_combo.currentIndexChanged.disconnect(self._os_update_vehicles_from_client)
+        except TypeError:
+            # se não havia conexão ainda, ignoramos o erro
             pass
 
         self.os_cliente_combo.clear()
@@ -453,8 +455,12 @@ class MainWindow(QMainWindow):
         for c in clientes:
             self.os_cliente_combo.addItem(f"{c.nome}", userData=c.id)
 
-        self._os_update_vehicles_from_client(0)
+        # atualiza veículos do cliente inicialmente selecionado
+        self._os_update_vehicles_from_client(self.os_cliente_combo.currentIndex())
+
+        # reconecta o sinal
         self.os_cliente_combo.currentIndexChanged.connect(self._os_update_vehicles_from_client)
+
 
     def _os_update_vehicles_from_client(self, idx):
         self.os_veiculo_combo.clear()
